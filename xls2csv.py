@@ -4,8 +4,8 @@
 '''
 Converts file to and from CSV/XLS/XLX.
 
-usage: xls2csv.py [-h] [-o OUTPUT] [-q {0,1,2,3}] [-e ENCODING]
-                  input
+usage: xls2csv [-h] [-o OUTPUT] [-q {0,1,2,3}] [-e ENCODING]
+               input
 
 positional arguments:
   input                 input file name
@@ -14,6 +14,8 @@ optional arguments:
   -h, --help            show this help message and exit
   -o OUTPUT, --output OUTPUT
                         output file or folder name
+  -d DELIMITER, --delimiter DELIMITER
+                        column field delimiter
   -q {0,1,2,3}, --quoting {0,1,2,3}
                         text quoting {0: 'minimal', 1: 'all',
                         2: 'non-numeric', 3: 'none'}
@@ -22,10 +24,11 @@ optional arguments:
 '''
 
 from argparse import ArgumentParser
-from csv import reader, writer, QUOTE_MINIMAL
+from csv import reader, writer
 from os import listdir, mkdir
 from os.path import basename, splitext
 from os.path import exists, isdir, isfile
+from sys import stderr
 
 from xlrd import open_workbook
 from xlwt import Workbook
@@ -38,7 +41,7 @@ QUOTING = {0: 'minimal',
            3: 'none'}
 
 def convert_file(input_name, output_name=None,
-    quoting=QUOTE_MINIMAL, encoding=ENCODING):
+    delimiter=None, quoting=0, encoding=ENCODING):
     '''
     Converts file based on extension format.
     '''
@@ -46,12 +49,12 @@ def convert_file(input_name, output_name=None,
 
     if ext in ('.xls', '.xlsx'):
         # convert to CSV file
-        xls2csv(input_name, output_name, quoting, encoding)
+        xls2csv(input_name, output_name, delimiter, quoting, encoding)
     else: # convert to Excel file
-        csv2xls(input_name, output_name, quoting, encoding)
+        csv2xls(input_name, output_name, delimiter, quoting, encoding)
 
 def csv2xls(input_name, output_file=None,
-    quoting=QUOTE_MINIMAL, encoding=ENCODING):
+    delimiter=None, quoting=0, encoding=ENCODING):
     '''
     Converts CSV format file to Excel (XLS).
     '''
@@ -63,7 +66,7 @@ def csv2xls(input_name, output_file=None,
         elif isfile(input_name):
             input_files = [input_name]
         else: # error
-            print('Error: invalid input; neither a folder nor a file.')
+            print("Error: '%s' is neither a folder nor a file.", file=stderr)
             raise SystemExit
     else: # as a list of files
         input_files = input_name
@@ -73,14 +76,16 @@ def csv2xls(input_name, output_file=None,
         output_file = basename(name)+'.xlsx'
 
     if exists(output_file):
-        print("Error: file '%s' already exists." % output_file)
+        print("Error: file '%s' already exists." % output_file, file=stderr)
         raise SystemExit
 
     book = Workbook()
 
     for s,n in enumerate(input_files):
-        delimiter = get_file_delimiter(n, encoding)
         sheet = book.add_sheet(basename(n))
+
+        if not delimiter:
+            delimiter = get_file_delimiter(n, encoding)
 
         with open(n, 'r', encoding=encoding) as f:
             file_reader = reader(f, delimiter=delimiter, quoting=quoting)
@@ -96,10 +101,15 @@ def csv2xls(input_name, output_file=None,
     book.save(output_file)
 
 def xls2csv(input_file, output_folder='.',
-    delimiter=None, quoting=QUOTE_MINIMAL, encoding=ENCODING):
+    delimiter=None, quoting=0, encoding=ENCODING):
     '''
     Converts Excel (xls/xlsx) format files to CSV.
     '''
+    quotechar = '"'
+
+    if quoting == 3:
+        quotechar = ''
+
     name, ext = splitext(input_file)
     name = basename(name)
 
@@ -112,7 +122,7 @@ def xls2csv(input_file, output_folder='.',
     if not exists(output_folder):
         mkdir(output_folder)
     elif output_folder != '.':
-        print("Error: folder '%s' already exists." % output_folder)
+        print("Error: folder '%s' already exists." % output_folder, file=stderr)
         raise SystemExit
 
     if not delimiter:
@@ -123,7 +133,7 @@ def xls2csv(input_file, output_folder='.',
         s = input_xls.sheet_by_name(i)
         o = output_folder+'/'+name+'_'+str(i)+'.csv'
         with open(o, 'w', encoding=encoding) as f:
-            w = writer(f, delimiter=delimiter, quoting=quoting)
+            w = writer(f, delimiter=delimiter, quoting=quoting, quotechar=quotechar)
             for line in range(s.nrows):
                 row = s.row_values(line)
                 w.writerow(row)
@@ -151,6 +161,7 @@ if __name__ == "__main__":
 
     parser.add_argument('input', action='store', help='input file name')
     parser.add_argument('-o', '--output', action='store', help='output file or folder name')
+    parser.add_argument('-d', '--delimiter', action='store', help='column field delimiter')
     parser.add_argument('-q', '--quoting', action='store', type=int, choices=QUOTING.keys(), default=0, help='text quoting %s' % QUOTING)
     parser.add_argument('-e', '--encoding', action='store', help='file encoding (default: %s)' % ENCODING)
 
@@ -158,5 +169,6 @@ if __name__ == "__main__":
 
     convert_file(args.input,
                  args.output,
+                 args.delimiter,
                  args.quoting,
                  args.encoding)
