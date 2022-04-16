@@ -4,23 +4,28 @@
 '''
 Converts file to and from CSV/XLS/XLX.
 
-usage: xls2csv [-h] [-o OUTPUT] [-q {0,1,2,3}] [-e ENCODING]
-               input
+usage: xls2csv [-h] [-o OUTPUT_NAME] [-d DELIMITER] [-e ENCODING]
+               [-E ESCAPECHAR] [-q {0,1,2,3}] [-Q QUOTECHAR]
+               input_name [input_name ...]
 
 positional arguments:
-  input                 input file name
+  input_name            input file name (one or multiple)
 
-optional arguments:
+options:
   -h, --help            show this help message and exit
-  -o OUTPUT, --output OUTPUT
+  -o OUTPUT_NAME, --output-name OUTPUT_NAME
                         output file or folder name
   -d DELIMITER, --delimiter DELIMITER
-                        column field delimiter
-  -q {0,1,2,3}, --quoting {0,1,2,3}
-                        text quoting {0: 'minimal', 1: 'all',
-                        2: 'non-numeric', 3: 'none'}
+                        column field delimiter (default: comma)
   -e ENCODING, --encoding ENCODING
-                        file encoding (default: utf-8)
+                        file encoding (default: 'utf-8')
+  -E ESCAPECHAR, --escapechar ESCAPECHAR
+                        escape character (default: '\')
+  -q {0,1,2,3}, --quoting {0,1,2,3}
+                        text quoting {0: 'minimal', 1: 'all', 2: 'non-
+                        numeric', 3: 'none'}
+  -Q QUOTECHAR, --quotechar QUOTECHAR
+                        quote character (default: '"')
 '''
 
 from argparse import ArgumentParser
@@ -34,35 +39,44 @@ from xlrd import open_workbook
 from xlwt import Workbook
 
 ENCODING = 'utf-8'
+ESCAPECHAR = '\\'
+QUOTECHAR = '"'
 
 QUOTING = {0: 'minimal',
            1: 'all',
            2: 'non-numeric',
            3: 'none'}
 
-def convert_file(input_name, output_name=None,
-    delimiter=None, quoting=0, encoding=ENCODING):
+def convert_file(files, **kwargs):
     '''
     Converts file based on extension format.
     '''
-    name, ext = splitext(input_name)
+    for input_name in ([files] if type(files) == str else files):
+        name, ext = splitext(input_name)
+        (xls2csv if ext in ('.xls', '.xlsx') else csv2xls)(input_name, **kwargs)
 
-    if ext in ('.xls', '.xlsx'):
-        # convert to CSV file
-        xls2csv(input_name, output_name, delimiter, quoting, encoding)
-    else: # convert to Excel file
-        csv2xls(input_name, output_name, delimiter, quoting, encoding)
-
-def csv2xls(input_name, output_file=None,
-    delimiter=None, quoting=0, encoding=ENCODING):
+def csv2xls(
+    input_name,
+    output_name=None,
+    delimiter=',',
+    encoding=ENCODING,
+    escapechar=ESCAPECHAR,
+    quotechar=QUOTECHAR,
+    quoting=0,
+) -> str:
     '''
     Converts CSV format file to Excel (XLS).
     '''
+    book = Workbook()
+
+    if quoting == 3:
+        quotechar = ''
+
     if isinstance(input_name, str):
         input_files = []
         if isdir(input_name):
             for f in sorted(listdir(input_name)):
-                input_files.append(input_name+'/'+f)
+                input_files.append(f'{input_name}/{f}')
         elif isfile(input_name):
             input_files = [input_name]
         else: # error
@@ -71,24 +85,22 @@ def csv2xls(input_name, output_file=None,
     else: # as a list of files
         input_files = input_name
 
-    if not output_file:
-        name, ext = splitext(input_name if isinstance(input_name,str) else input_files[0])
-        output_file = basename(name)+'.xlsx'
+    if not output_name:
+        name, ext = splitext(input_name if isinstance(input_name, str) else input_files[0])
+        output_name = basename(name)+'.xlsx'
 
-    if exists(output_file):
-        print("Error: file '%s' already exists." % output_file, file=stderr)
+    if exists(output_name):
+        print("Error: file '%s' already exists." % output_name, file=stderr)
         raise SystemExit
 
-    book = Workbook()
-
-    for s,n in enumerate(input_files):
+    for s, n in enumerate(input_files):
         sheet = book.add_sheet(basename(n))
 
         if not delimiter:
             delimiter = get_file_delimiter(n, encoding)
 
         with open(n, 'r', encoding=encoding) as f:
-            file_reader = reader(f, delimiter=delimiter, quoting=quoting)
+            file_reader = reader(f, delimiter=delimiter, escapechar=escapechar, quotechar=quotechar, quoting=quoting)
             header = next(file_reader)
             row = sheet.row(0)
             for i,v in enumerate(header):
@@ -98,15 +110,21 @@ def csv2xls(input_name, output_file=None,
                 for i,v in enumerate(line):
                     row.write(i, v)
 
-    book.save(output_file)
+    book.save(output_name)
+    return output_name
 
-def xls2csv(input_file, output_folder='.',
-    delimiter=None, quoting=0, encoding=ENCODING):
+def xls2csv(
+    input_file,
+    output_name='.',
+    delimiter=',',
+    encoding=ENCODING,
+    escapechar=ESCAPECHAR,
+    quotechar=QUOTECHAR,
+    quoting=0,
+) -> list:
     '''
     Converts Excel (xls/xlsx) format files to CSV.
     '''
-    quotechar = '"'
-
     if quoting == 3:
         quotechar = ''
 
@@ -116,27 +134,24 @@ def xls2csv(input_file, output_folder='.',
     input_xls = open_workbook(input_file)
     sheets = input_xls.sheet_names()
 
-    if not output_folder:
-        output_folder = '.'
+    if not output_name:
+        output_name = '.'
 
-    if not exists(output_folder):
-        mkdir(output_folder)
-    elif output_folder != '.':
-        print("Error: folder '%s' already exists." % output_folder, file=stderr)
+    if not exists(output_name):
+        mkdir(output_name)
+    elif output_name != '.':
+        print("Error: folder '%s' already exists." % output_name, file=stderr)
         raise SystemExit
-
-    if not delimiter:
-        delimiter = ','
 
     lst = []
     for i in sheets:
         s = input_xls.sheet_by_name(i)
-        o = output_folder+'/'+name+'_'+str(i)+'.csv'
+        o = f'{output_name}/{name}_{str(i)}.csv'
         with open(o, 'w', encoding=encoding) as f:
-            w = writer(f, delimiter=delimiter, quoting=quoting, quotechar=quotechar)
+            file_writer = writer(f, delimiter=delimiter, escapechar=escapechar, quoting=quoting, quotechar=quotechar)
             for line in range(s.nrows):
                 row = s.row_values(line)
-                w.writerow(row)
+                file_writer.writerow(row)
         lst.append(o)
 
     return lst
@@ -159,16 +174,22 @@ if __name__ == "__main__":
 
     parser = ArgumentParser()
 
-    parser.add_argument('input', action='store', help='input file name')
-    parser.add_argument('-o', '--output', action='store', help='output file or folder name')
-    parser.add_argument('-d', '--delimiter', action='store', help='column field delimiter')
+    parser.add_argument('input_name', action='store', help='input file name (one or multiple)', nargs='+')
+    parser.add_argument('-o', '--output-name', action='store', help='output file or folder name')
+    parser.add_argument('-d', '--delimiter', action='store', default=',', help='column field delimiter (default: comma)')
+    parser.add_argument('-e', '--encoding', action='store', default=ENCODING, help='file encoding (default: \'%s\')' % ENCODING)
+    parser.add_argument('-E', '--escapechar', action='store', default=ESCAPECHAR, help='escape character (default: \'%s\')' % ESCAPECHAR)
     parser.add_argument('-q', '--quoting', action='store', type=int, choices=QUOTING.keys(), default=0, help='text quoting %s' % QUOTING)
-    parser.add_argument('-e', '--encoding', action='store', help='file encoding (default: %s)' % ENCODING)
+    parser.add_argument('-Q', '--quotechar', action='store', default=QUOTECHAR, help='quote character (default: \'%s\')' % QUOTECHAR)
 
     args = parser.parse_args()
 
-    convert_file(args.input,
-                 args.output,
-                 args.delimiter,
-                 args.quoting,
-                 args.encoding)
+    convert_file(
+        args.input_name,
+        delimiter=args.delimiter,
+        encoding=args.encoding,
+        escapechar=args.escapechar,
+        output_name=args.output_name,
+        quotechar=args.quotechar,
+        quoting=args.quoting,
+    )
